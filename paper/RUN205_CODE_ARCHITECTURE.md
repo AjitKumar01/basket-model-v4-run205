@@ -441,7 +441,7 @@ even when the forward normalizer looks finite.
 
 ## 20. Verification files and accepted gates
 
-`test_qmc.py` and `test_initialization.py` currently contain 33 passing tests.  They cover
+The estimator, initialization, and baseline suites currently contain 40 passing tests.  They cover
 Sobol construction, conditional laws, native/eager polynomial agreement, gradients,
 support behavior, gauges, objective decomposition, and initialization invariants.
 

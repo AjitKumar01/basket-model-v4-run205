@@ -1,9 +1,10 @@
-# run205 code architecture and its correspondence with theory
+# run205/run207 code architecture and its correspondence with theory
 
 ## 1. Purpose
 
 This document explains the smallest code path needed to reproduce
-`run205_sparse400_q64_full`.  It is organized in execution order and explicitly matches
+the fresh `run205_sparse400_q64_full` lineage and its exact
+`run207_sparse400_q128_bounded_full` continuation.  It is organized in execution order and explicitly matches
 each component to the equations in `RUN205_THEORY.md`.
 
 The production path is intentionally small:
@@ -509,3 +510,39 @@ The architecture is arranged so each shared mathematical quantity has one implem
 `b_at` for utility, `set_quad` for integration choice, `log_f_sparse` for polynomial mass,
 `log_Z` for normalization, and the same reverse polynomial for generation.  That one-path
 discipline is the main defense against another estimator/model mismatch.
+
+## 23. Corrected continuation and operational logs
+
+`run207_sparse400_q128_bounded_full.zsh` resumes the atomic iteration-600 run205 checkpoint.
+`fit.py` now explicitly skips size IPF on `--resume`; otherwise rho_0 would be changed after
+restoring its Adam moments, so the job would not be an exact continuation.  Model weights,
+optimizer, scheduler, NumPy RNG, Torch RNG, catalogue, rank, support, interaction mask, and
+all objective weights are preserved.
+
+The continuation changes only estimator execution:
+
+| Setting | Fresh run205 | Corrected run207 |
+|---|---:|---:|
+| training nodes | Q64 | Q128 |
+| hard-trip refinements | Q128--Q4096 | Q256--Q4096 |
+| checkpoint rule | Q256 | Q512 |
+| proposal solve | size-band mode solve | zero-centred, zero backward steps |
+| sparse polynomial adjoint | raw linear coefficients | bounded log/probability coordinates |
+
+The training log intentionally omits MRR when `--n-rec 0`; `MRR nan` was not information.
+Recommendation remains a separate held-out task run by `eval_mrr_cutoffs.py`, where full
+MRR, MRR@5/10/20, recall, eligibility counts, and the identical-trip popularity comparison
+are all reported together.
+
+Launch and inspect the corrected continuation with:
+
+```bash
+zsh scripts/v3/run207_sparse400_q128_bounded_full.zsh
+tail -f out/v3_run207_sparse400_q128_bounded_full.log
+```
+
+The frozen estimator evidence is written to
+`out/v3_run205_iter600_qmc_latency_audit.json`,
+`out/v3_run205_iter600_zeromode_qmc_audit.json`, and
+`out/v3_run205_iter600_phi_rqmc_efficiency.json`.  Generated audit outputs and checkpoints
+are not committed to GitHub.

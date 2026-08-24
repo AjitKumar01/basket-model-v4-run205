@@ -1295,7 +1295,12 @@ def main(a):
     if phi_mask is not None:
         with torch.no_grad():
             m.phi.mul_(phi_mask)
-    if a.size_ipf_steps:
+    # A format-2 resume is an exact continuation: model, optimiser, scheduler and RNG
+    # must be the checkpoint state.  Re-running IPF here silently changed rho_0 after it
+    # had been restored, so the purported continuation followed a different objective
+    # trajectory while retaining stale Adam moments for rho_0.  Fresh and warm-start
+    # lineages may calibrate; crash/recovery continuations must not.
+    if a.size_ipf_steps and not a.resume:
         _ipf = calibrate_size_ipf(
             m, D, tr, B, a.nmax, steps=a.size_ipf_steps,
             n_trips=a.size_ipf_trips, chunk=a.batch, damp=a.size_ipf_damp)
@@ -1303,6 +1308,8 @@ def main(a):
             log(f"  size IPF {_row['step'] + 1}/{a.size_ipf_steps}: "
                 f"E[n] {_row['mean']:.2f}, KL(target||model) {_row['kl']:.4f}, "
                 f"max |log ratio| {_row['max_log_ratio']:.2f}")
+    elif a.size_ipf_steps:
+        log("  size IPF not rerun on --resume; preserving the exact checkpoint state")
     if a.freeze_rho0:
         # Freeze rho_0 at the empirical size law.
         #
@@ -2845,7 +2852,8 @@ def main(a):
                 f"lam_max {lam_max:.3f}  E[n] {ho_e:.1f}(med {ho_e_med:.1f})/{vobs.mean():.1f} "
                 f"[{ho_e8:.1f}@8x] var {ho_v:.0f}/{vobs.var():.0f} "
                 f"(w{ho_v_within:.0f}+s{ho_e_spread:.0f})  "
-                f"MRR {rec_mrr:.4f}(med {rec_med:.0f})  "
+                + (f"MRR {rec_mrr:.4f}(med {rec_med:.0f})  " if a.n_rec > 0 else "")
+                +
                 # lam is the per-product intercept and the parameter ranking depends on.
                 # pi_exact used to shadow it into self.__dict__ as a detached tensor, so it
                 # took exactly one Adam step (|lam| <= lr) and froze, runs 29-71.  Logged so

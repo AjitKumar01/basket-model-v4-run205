@@ -794,13 +794,58 @@ def sparse_prepare(model, ix, degree=None, nmax=None):
     # depend on evaluation batch size.  Require coverage of every NONEMPTY row instead.
     nonempty_rows = int((ix.row_size > 0).sum())
     all_nonempty_rows_active = len(urow) == nonempty_rows
-    native_log_path = (all_active and all_nonempty_rows_active
-                       and bool(getattr(model, "_esp_native", False))
+    # The bounded log-coordinate kernels apply to sparse Phi as well as dense Phi.  The
+    # former restriction to ``all_active`` sent a row-masked run through the raw
+    # linear-coefficient adjoint; on rare tail batches its proposal and likelihood
+    # backwards formed 0*inf even though log Z itself was finite.  Split inactive and
+    # active item polynomials in log coordinates below, so sparsity remains exact without
+    # reintroducing that numerical range restriction.
+    native_log_path = (bool(getattr(model, "_esp_native", False))
                        and bool(getattr(model, "_poly_degree_native", False)))
     a_ = None if native_log_path else torch.exp(log_a_)
     aflat = ix.flat_slot[urow] if len(ai) > 0 else ix.flat_slot[:0]
     const_identity = all_nonempty_rows_active
-    if const_identity:
+    log_e0 = None
+    log_A_const = None
+    const_degree = None
+    if native_log_path:
+        from poly_degree_native import log_poly_tree_degree_native
+
+        # Build the inactive ESP once per minibatch with its bounded probability adjoint.
+        # Active slots are exact zero weights (-inf in log coordinates); retaining their
+        # original positions lets the existing bucket layout be reused unchanged.
+        logw0 = torch.where(act, torch.full_like(bt, -float("inf")), bt - sh)
+        log_e0 = esp_log_bucketed(
+            logw0.unsqueeze(0), ix.row_of, ix.n_rows, R,
+            ix.row_size, ix.item_pos)
+
+        # Multiply categories untouched by Phi once.  A common degree tilt is an exact
+        # generating-polynomial identity and prevents mutually incompatible category
+        # maxima from underflowing during the product.
+        logG0 = log_e0 + log_a_.unsqueeze(0)
+        logGc = torch.full((1, ix.B * ix.Cpad, R + 1), -float("inf"),
+                           dtype=e0.dtype, device=e0.device)
+        logGc[..., 0] = 0.0
+        logGc = logGc.index_copy(1, ix.flat_slot, logG0)
+        category_degree = torch.zeros(ix.B * ix.Cpad, dtype=torch.long,
+                                      device=e0.device)
+        category_degree[ix.flat_slot] = ix.row_size.clamp(max=R)
+        if len(aflat) > 0:
+            logGc[:, aflat, :] = -float("inf")
+            logGc[:, aflat, 0] = 0.0
+            category_degree[aflat] = 0
+        logGc = logGc.view(1, ix.B, ix.Cpad, R + 1)
+        category_degree = category_degree.view(ix.B, ix.Cpad)
+        degree_axis = torch.arange(R + 1, dtype=e0.dtype, device=e0.device)
+        const_slope = (logGc[..., 1:] / degree_axis[1:]).amax(dim=(2, 3))
+        const_slope = const_slope.clamp_min(0.0)
+        tilted_const = logGc - const_slope[:, :, None, None] * degree_axis
+        log_A_const = log_poly_tree_degree_native(
+            tilted_const.contiguous(), category_degree.contiguous(), nmax)
+        log_A_const = log_A_const + const_slope.unsqueeze(-1) * degree_axis
+        const_degree = category_degree.sum(1).clamp(max=nmax)
+        A_const = None
+    elif const_identity:
         # Every category is z-dependent at full catalogue coverage, hence the constant
         # half is exactly the identity.  Avoid building and tree-multiplying thousands of
         # row polynomials that are immediately overwritten by identities.
@@ -837,9 +882,12 @@ def sparse_prepare(model, ix, degree=None, nmax=None):
         base_size = base_size.to(dtype=torch.long, device=e0.device)
         if base_size.shape != (ix.B,):
             raise ValueError("conditional base size must have one entry per trip")
-    return dict(bt=bt, M0=M0, sh=sh, e0=e0, ai=ai, urow=urow, inv=inv, pos=pos,
+    return dict(bt=bt, M0=M0, sh=sh, e0=e0, log_e0=log_e0,
+                ai=ai, urow=urow, inv=inv, pos=pos,
                 acnt=acnt, kmax=kmax, a_row=a_, log_a_row=log_a_,
-                A_const=A_const, ab=ab, acol=acol,
+                A_const=A_const, log_A_const=log_A_const,
+                const_degree=const_degree, native_log_path=native_log_path,
+                ab=ab, acol=acol,
                 cpad_a=cpad_a, atrip=atrip, atpos=atpos, atmax=atmax, apad=apad,
                 active_degree=active_degree,
                 inactive_identity=all_active, const_identity=const_identity, R=R,
@@ -861,10 +909,7 @@ def log_f_sparse(model, z, ix, C, drop_empty=False, return_terms=False,
     # normaliser.  Conditional complete-the-basket scoring deliberately removes revealed
     # items and therefore has a non-identity inactive polynomial; retain the exact legacy
     # algebra for that smaller evaluation-only graph.
-    stable_log_native = (bool(getattr(model, "_esp_native", False))
-                         and bool(getattr(model, "_poly_degree_native", False))
-                         and bool(C["inactive_identity"])
-                         and bool(C["const_identity"]))
+    stable_log_native = bool(C.get("native_log_path", False))
     if len(ai) > 0:
         if C["apad"] is not None:
             apad = C["apad"].detach() if detach_params else C["apad"]
@@ -889,8 +934,9 @@ def log_f_sparse(model, z, ix, C, drop_empty=False, return_terms=False,
             centred_logwa = logwa - node_M[:, C["atrip"]].transpose(0, 1)
             wa = None if stable_log_native else torch.exp(centred_logwa)
         else:
-            wa = torch.exp(C["bt"][ai].unsqueeze(1)
-                           - C["sh"][ai].unsqueeze(1) + proj)
+            centred_logwa = (C["bt"][ai].unsqueeze(1)
+                              - C["sh"][ai].unsqueeze(1) + proj)
+            wa = None if stable_log_native else torch.exp(centred_logwa)
         # Bucket the ACTIVE slots themselves.  The old rectangular allocation was
         # [nodes, active_rows, max_active_row_size]; with all products active, a single
         # 1,774-product residual category forced every other row to that width (34+ GiB at
@@ -920,11 +966,33 @@ def log_f_sparse(model, z, ix, C, drop_empty=False, return_terms=False,
                                   * Ea[..., : R + 1 - r])
     if stable_log_native and C["cpad_a"] > 0:
         from poly_degree_native import log_poly_tree_degree_native
+        degree_axis = torch.arange(R + 1, dtype=dt, device=dev)
+
+        if C["inactive_identity"]:
+            log_combined = logEa
+        else:
+            # Exact within-category product
+            #   ESP(inactive weights) * ESP(active weights at z).
+            # Both operands and the adjoint remain in log/probability coordinates.  A
+            # shared linear degree tilt is removed before convolution and restored after;
+            # this changes neither coefficients nor derivatives.
+            logbase = C["log_e0"][0, C["urow"]]
+            pair = torch.stack([
+                logbase.unsqueeze(0).expand(D, -1, -1), logEa], dim=2)
+            inactive_degree = (ix.row_size[C["urow"]] - C["acnt"]).clamp(min=0, max=R)
+            pair_degree = torch.stack([inactive_degree, C["acnt"].clamp(max=R)], dim=1)
+            pair_slope = (pair[..., 1:] / degree_axis[1:]).amax(dim=(2, 3))
+            pair_slope = pair_slope.clamp_min(0.0)
+            pair_tilted = pair - pair_slope[:, :, None, None] * degree_axis
+            log_combined = log_poly_tree_degree_native(
+                pair_tilted.contiguous(), pair_degree.contiguous(), nmax)
+            log_combined = log_combined + pair_slope.unsqueeze(-1) * degree_axis
+
         # sparse_prepare already has the exact category potential in log coordinates.
         # Do not round-trip it through exp/log: complete support at R=120 legitimately
         # exceeds the dynamic range of a raw coefficient while its log remains finite.
         loga = C["log_a_row"][C["urow"]]
-        logGa = logEa + loga.unsqueeze(0)
+        logGa = log_combined + loga.unsqueeze(0)
         # One constant scale per category is numerically wrong for strongly attractive
         # complete-support interactions: different categories attain their maxima at
         # mutually incompatible high counts, so multiplying their normalized degree-zero
@@ -937,17 +1005,29 @@ def log_f_sparse(model, z, ix, C, drop_empty=False, return_terms=False,
         # adding n*t back below recovers the original version-4 coefficient.  Choosing t as
         # the largest finite logG_c(r)/r makes every transformed coefficient <= 1 while
         # retaining G'_c(0)=1, so neither overflow nor incompatible-max underflow occurs.
-        degree_axis = torch.arange(R + 1, dtype=dt, device=dev)
-        row_slope = (logGa[..., 1:] / degree_axis[1:]).amax(-1)
-        degree_tilt = seg_max(row_slope, C["ab"], ix.B).clamp_min(0.0)
-        logGa = (logGa
-                 - degree_tilt[:, C["ab"]].unsqueeze(-1) * degree_axis)
-        logGz = torch.full((D, ix.B, C["cpad_a"], R + 1), -float("inf"),
+        # Include the z-independent product of inactive-only categories as one extra
+        # polynomial, then multiply it with the active categories.  This retains the
+        # sparse O(1) cache across Sobol nodes while giving every route the bounded native
+        # adjoint.
+        n_factor = C["cpad_a"] + (0 if C["const_identity"] else 1)
+        offset = 0 if C["const_identity"] else 1
+        logGz = torch.full((D, ix.B, n_factor, R + 1), -float("inf"),
                           dtype=dt, device=dev)
         logGz[..., 0] = 0.0
-        logGz[:, C["ab"], C["acol"]] = logGa
+        factor_degree = torch.zeros(ix.B, n_factor, dtype=torch.long, device=dev)
+        if offset:
+            logGz[:, :, 0] = C["log_A_const"].expand(D, -1, -1)
+            factor_degree[:, 0] = C["const_degree"]
+        logGz[:, C["ab"], C["acol"] + offset] = logGa
+        factor_degree[C["ab"], C["acol"] + offset] = C["active_degree"][
+            C["ab"], C["acol"]]
+        row_slope = (logGz[..., 1:] / degree_axis[1:]).amax(-1)
+        degree_tilt = row_slope.amax(2).clamp_min(0.0)
+        logGz = logGz - degree_tilt[:, :, None, None] * degree_axis
         logA = log_poly_tree_degree_native(
-            logGz.contiguous(), C["active_degree"].contiguous(), nmax)
+            logGz.contiguous(), factor_degree.contiguous(), nmax)
+    elif stable_log_native and C["cpad_a"] == 0:
+        logA = C["log_A_const"].expand(D, -1, -1)
     elif C["cpad_a"] == 0:
         A = C["A_const"][..., :nmax + 1].expand(D, -1, -1)
     else:

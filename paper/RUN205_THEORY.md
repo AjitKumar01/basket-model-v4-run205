@@ -1,9 +1,10 @@
-# Basket Model v4: end-to-end theory for run205
+# Basket Model v4: end-to-end theory for the run205/run207 lineage
 
 ## 1. What this document fixes in scope
 
 This document describes the statistical model declared in `version4.html` and the
-estimator used by `run205_sparse400_q64_full`.  The foundational probability law is not
+estimator first used by `run205_sparse400_q64_full` and corrected in its exact run207
+continuation.  The foundational probability law is not
 changed.  In particular:
 
 - a basket is a set, not a sequence;
@@ -537,3 +538,35 @@ or beaten every baseline.
 
 Those limitations are explicit implementation/model-capacity boundaries.  None replaces the
 version-4 joint law with a different size model or changes its foundational theorem.
+
+## 20. Iteration-600 estimator correction
+
+Run205 remained statistically valid through its best checkpoint at iteration 600
+(`set/basket = -55.1611`; independent normalizer gap `0.0177` nat), but Q64 ceased to be an
+efficient base rule as the interaction grew.  On 24 frozen held-out trips, its mean/max
+absolute `log Z` gap against an independent Q512 rule was `0.0181/0.0605` nat.  Q128 reduced
+the mean gap to `0.0047` nat and improved the minimum interaction-gradient cosine from
+`0.9739` to `0.9861`.
+
+The larger problem was numerical, not statistical.  Sparse Phi used a raw linear
+polynomial adjoint.  A finite likelihood could therefore differentiate a negligible tail
+coefficient through an intermediate `0 * infinity`, causing rejected updates and repeated
+quadrature work.  The correction keeps the identical generating polynomial but performs
+all three sparse products in log/probability coordinates:
+
+1. the inactive-item ESP is cached once;
+2. inactive and active ESPs are multiplied inside each Phi-touched category; and
+3. untouched-category mass and touched categories are multiplied across the trip.
+
+At each multiplication a common linear degree tilt is removed and restored.  This is the
+exact identity `G_c(r) -> G_c(r) exp(-t r)`, so the product's degree-`n` coefficient changes
+by `exp(-t n)` and is recovered by adding `n t` in log space.  It is conditioning of the
+calculation, not a change to an energy, parameter, support point, or theorem.
+
+At iteration 600 the measured proposal center has norm only `0.14` and the interaction
+curvature diagnostic is `lambda_max = 0.377 < 1`.  Zero-centred Sobol integration therefore
+removes an unnecessary mode-solving backward pass.  It remains the same exact Gaussian
+expectation; Q512 audits and per-trip Q256--Q4096 refinements remain the accuracy guards.
+An exact 20-update replay then fell from `6.19` to `2.73` seconds per iteration, removed all
+non-finite gradients, and accepted 19/20 updates.  The one rejection had genuinely failed
+diagnostics (`ESS=0.014`, replicate SE `0.099`) and was correctly not sent to Adam.

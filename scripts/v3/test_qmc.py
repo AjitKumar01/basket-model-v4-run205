@@ -85,6 +85,52 @@ class FullCatalogueQmcTest(unittest.TestCase):
         self.assertLess(float((got_grad[live.expand_as(got_grad)]
                                - ref_grad[live.expand_as(ref_grad)]).abs().max()), 3e-11)
 
+    def test_sparse_native_log_path_matches_original_value_and_gradient(self):
+        """A fixed Phi-row mask must retain the exact joint law and a finite adjoint."""
+        try:
+            import poly_degree_native  # noqa: F401
+        except ImportError as exc:
+            self.skipTest(str(exc))
+        torch.manual_seed(99)
+        J, C, Kz, nmax = 24, 3, 4, 12
+        category = torch.arange(C).repeat_interleave(J // C)
+        ix = RaggedIndex(torch.arange(J), category,
+                         torch.zeros(C, dtype=torch.long), torch.arange(C), 1)
+
+        def make_model():
+            model = RaggedModel(J, 1, C, K=2, Kz=Kz, nmax=nmax, R=nmax,
+                                S=1, Kp=2, Kt=2, Ks=2, seed=8)
+            model.house, model.ctx = torch.tensor([0]), None
+            with torch.no_grad():
+                model.cat_of.copy_(category)
+                model.lam.normal_(-2.0, 0.3)
+                model.phi.normal_(0.0, 0.09)
+                model.phi[::3].zero_()
+                model.rho_c.copy_(torch.tensor([-0.12, 0.05, -0.07]))
+                model.rho_0_free.copy_(
+                    0.02 * torch.arange(1, nmax + 1).square())
+            return model
+
+        reference = make_model()
+        native = make_model()
+        native.load_state_dict(reference.state_dict())
+        native._esp_native = True
+        native._poly_degree_native = True
+        z = torch.randn(1, 7, Kz)
+        expected = log_f_sparse(
+            reference, z, ix, sparse_prepare(reference, ix), True).sum()
+        actual = log_f_sparse(
+            native, z, ix, sparse_prepare(native, ix), True).sum()
+        ref_grad = torch.autograd.grad(
+            expected, (reference.lam, reference.phi, reference.rho_c,
+                       reference.rho_0_free))
+        got_grad = torch.autograd.grad(
+            actual, (native.lam, native.phi, native.rho_c, native.rho_0_free))
+        self.assertEqual(float((actual - expected).detach().abs()), 0.0)
+        for got, want in zip(got_grad, ref_grad):
+            self.assertTrue(bool(torch.isfinite(got).all()))
+            self.assertLess(float((got - want).abs().max()), 5e-14)
+
     def test_checkpoint_support_metadata_overrides_best_score_summary(self):
         """A *_best.json summary without R must not collapse complete support to 23."""
         self.assertEqual(resolve_checkpoint_R({"R": 120}, {"iter": 400, "R": 23}), 120)

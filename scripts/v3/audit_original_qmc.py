@@ -54,7 +54,8 @@ def evaluate(model, batcher, trips, config, chunk):
     set_quad(
         model, qmc_n=config["nodes"], qmc_seed=config["seed"],
         qmc_reps=config["reps"], Kz=model.Kz, probe=config["probe"],
-        steps=config["steps"], chunk=config["chunk"], size_bands=1,
+        steps=config["steps"], chunk=config["chunk"],
+        size_bands=config["size_bands"],
         size_steps=config["size_steps"], mode_logtol=config["mode_logtol"],
         mode_sep=config["mode_sep"], mix_n=2 * config["nodes"],
         antithetic=config.get("antithetic", True))
@@ -70,7 +71,9 @@ def evaluate(model, batcher, trips, config, chunk):
         lz_all.append(lz.cpu())
         en_all.append((pn * n).sum(1).cpu())
         se_all.append(model._last_qmc_logz_se.cpu())
-        mode_all.append(model._last_qmc_mode_count.cpu())
+        mode_count = model._last_qmc_mode_count
+        mode_all.append((torch.ones(ix.B, dtype=torch.long)
+                         if mode_count is None else mode_count.cpu()))
         ess_all.append(ess.cpu())
     return {
         "logz": torch.cat(lz_all).numpy(),
@@ -115,13 +118,18 @@ def main(args):
     valid = np.flatnonzero(data["trip_split"] == 1)
     valid = valid[np.random.default_rng(args.manifest_seed).permutation(len(valid))]
     trips = valid[:args.trips]
-    common = dict(reps=4, probe=-1, steps=2, chunk=32, size_steps=3,
-                  mode_sep=1.0, mode_logtol=4.0, antithetic=True)
+    common = dict(reps=4, probe=-1, steps=args.steps, chunk=32,
+                  size_steps=args.size_steps, mode_sep=1.0, mode_logtol=4.0,
+                  antithetic=True)
     configs = {
-        "n64_production": common | dict(nodes=64, seed=0),
-        "n128_production": common | dict(nodes=128, seed=0),
-        "n256_production": common | dict(nodes=256, seed=0),
-        "reference": common | dict(nodes=args.reference_nodes, seed=1_000_003),
+        "n64_production": common | dict(nodes=64, seed=0,
+                                         size_bands=args.size_bands),
+        "n128_production": common | dict(nodes=128, seed=0,
+                                          size_bands=args.size_bands),
+        "n256_production": common | dict(nodes=256, seed=0,
+                                          size_bands=args.size_bands),
+        "reference": common | dict(nodes=args.reference_nodes, seed=1_000_003,
+                                    size_bands=args.reference_size_bands),
     }
     raw = {}
     for name, config in configs.items():
@@ -160,6 +168,10 @@ if __name__ == "__main__":
     parser.add_argument("--chunk", type=int, default=24)
     parser.add_argument("--manifest-seed", type=int, default=12345)
     parser.add_argument("--reference-nodes", type=int, default=256)
+    parser.add_argument("--size-bands", type=int, choices=(0, 1), default=1)
+    parser.add_argument("--reference-size-bands", type=int, choices=(0, 1), default=1)
+    parser.add_argument("--steps", type=int, default=2)
+    parser.add_argument("--size-steps", type=int, default=3)
     parser.add_argument("--R", type=int, default=120)
     parser.add_argument("--output", default="v3_run142_original_qmc_audit")
     main(parser.parse_args())

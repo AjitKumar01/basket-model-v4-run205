@@ -1,7 +1,8 @@
-# Basket Model v4 — run205 minimal branch
+# Basket Model v4 — run205/run207 minimal branch
 
 This branch contains only the theory, production code, estimator audits, tests, and frozen
-launcher used by `run205_sparse400_q64_full`.  Historical models, baselines, probes, figures,
+launchers used by the fresh `run205_sparse400_q64_full` lineage and its exact
+`run207_sparse400_q128_bounded_full` continuation.  Historical models, baselines, figures,
 and bulk outputs are deliberately absent.
 
 Start with:
@@ -40,16 +41,24 @@ env V3_AFFINITY=1 python scripts/v3/pairmask.py --k 400 --max-basket 40
 The size-40 rule affects only the training-only support-ranking statistic.  No basket is
 removed from likelihood training or evaluation.
 
-## Train
+## Train or continue
 
 ```bash
 zsh scripts/v3/run205_sparse400_q64_full.zsh
+```
+
+Run205's best atomic checkpoint is iteration 600.  Its corrected, faster continuation uses
+the bounded sparse-polynomial adjoint and Q128 training rule:
+
+```bash
+zsh scripts/v3/run207_sparse400_q128_bounded_full.zsh
 ```
 
 Live log:
 
 ```bash
 tail -f out/v3_run205_sparse400_q64_full.log
+tail -f out/v3_run207_sparse400_q128_bounded_full.log
 ```
 
 ## Evaluate exact conditional recommendation

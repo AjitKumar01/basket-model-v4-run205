@@ -1,0 +1,9 @@
+# Verified with Python 3.13.4 on CPU.
+numpy>=2.0
+pandas>=2.2
+pyarrow>=16.0
+scipy>=1.13
+scikit-learn>=1.5
+torch>=2.3
+setuptools>=70
+

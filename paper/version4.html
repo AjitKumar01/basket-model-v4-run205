@@ -1,0 +1,521 @@
+<title>Basket Model v4 — Specification and Experimental Record</title>
+<style>
+:root{
+  --ink:#10151c; --paper:#f7f8fa; --slate:#5b6672; --rule:#d7dde4; --card:#ffffff;
+  --accent:#0f6f7a; --ok:#1f6f43; --bad:#a3342b; --open:#8a6212; --codebg:#eef1f5;
+}
+@media (prefers-color-scheme:dark){
+  :root{--ink:#e6ebf1; --paper:#0e1319; --slate:#93a0ad; --rule:#26303b; --card:#141b23;
+        --accent:#4fb3bd; --ok:#5cbe86; --bad:#e2827a; --open:#d4a63c; --codebg:#182029;}
+}
+:root[data-theme="dark"]{--ink:#e6ebf1; --paper:#0e1319; --slate:#93a0ad; --rule:#26303b;
+  --card:#141b23; --accent:#4fb3bd; --ok:#5cbe86; --bad:#e2827a; --open:#d4a63c; --codebg:#182029;}
+:root[data-theme="light"]{--ink:#10151c; --paper:#f7f8fa; --slate:#5b6672; --rule:#d7dde4;
+  --card:#ffffff; --accent:#0f6f7a; --ok:#1f6f43; --bad:#a3342b; --open:#8a6212; --codebg:#eef1f5;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:78ch;margin:0 auto;padding:4rem 1.5rem 6rem}
+h1{font-size:2.1rem;line-height:1.15;letter-spacing:-.025em;font-weight:750;margin:0 0 .4rem;
+  text-wrap:balance}
+h2{font-size:1.32rem;letter-spacing:-.015em;font-weight:700;margin:3.2rem 0 .2rem;
+  padding-top:1.1rem;border-top:2px solid var(--ink);text-wrap:balance}
+h3{font-size:1.02rem;font-weight:700;margin:2rem 0 .3rem;letter-spacing:-.005em}
+h4{font-size:.9rem;font-weight:700;margin:1.4rem 0 .2rem;color:var(--slate);
+  text-transform:uppercase;letter-spacing:.07em}
+p{margin:.7rem 0}
+.lede{font-size:1.06rem;color:var(--slate);margin:.2rem 0 1.6rem;max-width:66ch}
+.meta{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;
+  color:var(--slate);letter-spacing:.04em;margin-bottom:2.6rem;
+  padding-bottom:1.2rem;border-bottom:1px solid var(--rule)}
+code,kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.87em;
+  background:var(--codebg);padding:.1em .35em;border-radius:3px}
+pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;line-height:1.55;
+  background:var(--card);border:1px solid var(--rule);border-left:3px solid var(--accent);
+  padding:.9rem 1.1rem;overflow-x:auto;margin:1rem 0;border-radius:2px}
+pre.eq{border-left-color:var(--slate);background:var(--codebg);font-size:.83rem}
+table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.83rem;
+  font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto;margin:1rem 0}
+th{text-align:left;font-weight:700;font-size:.72rem;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--slate);border-bottom:2px solid var(--rule);
+  padding:.45rem .6rem .45rem 0;white-space:nowrap}
+td{padding:.42rem .6rem .42rem 0;border-bottom:1px solid var(--rule);vertical-align:top}
+td.n,th.n{text-align:right;font-family:ui-monospace,Menlo,monospace}
+.chip{display:inline-block;font-family:ui-monospace,Menlo,monospace;font-size:.66rem;
+  font-weight:700;letter-spacing:.06em;padding:.12em .5em;border-radius:2px;
+  border:1px solid currentColor;white-space:nowrap;vertical-align:.08em}
+.ok{color:var(--ok)} .bad{color:var(--bad)} .op{color:var(--open)}
+.note{border-left:3px solid var(--open);background:var(--card);padding:.7rem 1rem;
+  margin:1.1rem 0;font-size:.92rem}
+.note strong{color:var(--open)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:.15rem 1.2rem;font-size:.85rem;
+  font-family:ui-monospace,Menlo,monospace;margin:.8rem 0}
+.kv dt{color:var(--slate)} .kv dd{margin:0}
+nav{font-size:.83rem;margin:0 0 2rem;padding:1rem 1.2rem;background:var(--card);
+  border:1px solid var(--rule);border-radius:2px}
+nav a{color:var(--accent);text-decoration:none;margin-right:1.1rem;white-space:nowrap;
+  display:inline-block;line-height:1.9}
+nav a:hover{text-decoration:underline}
+a:focus-visible,nav a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.small{font-size:.85rem;color:var(--slate)}
+hr{border:0;border-top:1px solid var(--rule);margin:2.5rem 0}
+</style>
+
+<div class="wrap">
+
+<h1>Basket Model v4</h1>
+<p class="lede">A probabilistic model over grocery baskets: it scores a set of products,
+answers price counterfactuals, and serves as the environment for coupon and markdown
+policies. This document specifies the model exactly and records what has been measured
+about it &mdash; including the claims that did not survive.</p>
+<div class="meta">branch version-4 &nbsp;&middot;&nbsp; reference checkpoint v3_run97_best.pt (5.3 epochs)
+&nbsp;&middot;&nbsp; 157,464 train / 16,937 valid / 24,294 test trips
+&nbsp;&middot;&nbsp; 5,455 products, 2,066 households, 102 weeks</div>
+
+<nav>
+<a href="#model">1 &middot; The model</a><a href="#params">2 &middot; Parameters</a>
+<a href="#norm">3 &middot; The normaliser</a><a href="#train">4 &middot; Training</a>
+<a href="#eval">5 &middot; Evaluation</a><a href="#exp">6 &middot; Experiments</a>
+<a href="#limits">7 &middot; Limitations</a><a href="#repro">8 &middot; Reproducing</a>
+</nav>
+
+<h2 id="model">1 &middot; The model</h2>
+<p>A basket is a <em>set</em> <code>S</code> of products, not a sequence. Its probability is
+Gibbs in an energy:</p>
+<pre class="eq">P(S | household h, trip t)  =  exp( E(S) ) / Z
+
+E(S) = sum_{j in S} b_jht                     item value
+     + sum_{j&lt;k in S} phi_j' phi_k            complementarity
+     - sum_c rho_c * n_c (n_c - 1) / 2         within-category interaction
+     - rho_0(n)                                basket-size potential</pre>
+<p>with <code>n = |S|</code> and <code>n_c</code> the number of items from category
+<code>c</code>. The item value is additive:</p>
+<pre class="eq">b_jht = lam_j                                  product intercept
+      + theta_h' alpha_j                       household taste
+      - softplus(gamma_h)' softplus(beta_j) * dlp_jt      price
+      + w_dsp_j * display + w_mlr_j * mailer   promotion
+      + mu_j' delta_w                          season (week w)
+      + zeta_j' xi_s                           store s
+      + psi_j' rec_jt                          recency</pre>
+<p>Three design consequences follow immediately, and every measured strength and weakness
+traces to one of them.</p>
+<p><strong>The size law is separate.</strong> <code>rho_0(n)</code> governs how many items a
+basket holds, independently of which. This is why the model calibrates basket size and price
+elasticity well: a uniform price shift moves <code>E[n]</code> through Proposition&nbsp;1,
+<code>dE[n]/dDelta = Var(n)</code>, with no need to re-rank products.</p>
+<p><strong>Complementarity is low-rank and positive semidefinite.</strong>
+<code>phi_j' phi_k</code> is a Gram matrix. It expresses products going together; it cannot
+express broad substitution, which must live in <code>rho_c</code>.</p>
+<p><strong>The quantity to rank on is <code>pi</code>, not <code>b</code>.</strong>
+<code>pi_j = P(j in S) = d log(Z-1)/d b_j</code> (Corollary 2) is the marginal inclusion
+probability: what happens after every product competes under the size law and the category
+term. It sums to <code>E[n]</code> by construction, and it is the difference between beating
+popularity by 2.2&times; and losing to it.</p>
+<p><strong>Ranking is normaliser-free.</strong> Comparing <code>S &cup; {j}</code> against
+<code>S &cup; {k}</code> cancels <code>Z</code> entirely, so recommendation costs one forward
+pass and no sampling. It also cancels <code>rho_0</code> and every shared item, so what
+remains is per-product discrimination &mdash; which is exactly why the scoring quantity has
+to be <code>pi</code> and not <code>b</code>.</p>
+
+<h2 id="params">2 &middot; Parameters</h2>
+<p>645,953 parameters. Every block below was inspected against data the model never sees
+directly; the verdict column is the result, and section&nbsp;6 gives the measurements.</p>
+<div class="scroll"><table>
+<thead><tr><th>Block</th><th>Shape</th><th class="n">Eff. rank</th><th>Role</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr><td><code>lam</code></td><td>(5455,)</td><td class="n">&mdash;</td><td>product intercept</td><td><span class="chip ok">WORKS</span></td></tr>
+<tr><td><code>theta</code></td><td>(2066, 32)</td><td class="n">21.8</td><td>household taste</td><td><span class="chip ok">MEANINGFUL</span> 5 interpretable segments</td></tr>
+<tr><td><code>alpha</code></td><td>(5455, 32)</td><td class="n">30.7</td><td>product taste</td><td><span class="chip ok">MEANINGFUL</span> encodes shared customer base</td></tr>
+<tr><td><code>gamma</code></td><td>(2066, 8)</td><td class="n">1.1</td><td>household price sensitivity</td><td><span class="chip ok">WORKS</span> collapses to one scalar</td></tr>
+<tr><td><code>beta</code></td><td>(5455, 8)</td><td class="n">8.0</td><td>product price sensitivity</td><td><span class="chip bad">NO SIGNAL</span> corr +0.016 with data</td></tr>
+<tr><td><code>mu / delta</code></td><td>(5455, 8) / (53, 8)</td><td class="n">6.2</td><td>seasonality</td><td><span class="chip ok">WEAKLY REAL</span> +0.12, positive for 69%</td></tr>
+<tr><td><code>zeta / xi</code></td><td>(5455, 4) / (115, 4)</td><td class="n">3.3</td><td>store effect</td><td><span class="chip op">UNTESTED</span></td></tr>
+<tr><td><code>psi</code></td><td>(5455, 4)</td><td class="n">&mdash;</td><td>recency</td><td><span class="chip bad">DISABLED</span> non-stationary on a temporal split</td></tr>
+<tr><td><code>phi</code></td><td>(5455, 4)</td><td class="n">4.0</td><td>complementarity</td><td><span class="chip op">CAPPED</span> 20 products, 80 live numbers</td></tr>
+<tr><td><code>rho_c</code></td><td>(280,)</td><td class="n">&mdash;</td><td>within-category</td><td><span class="chip op">TOO COARSE</span> 94.6% negative; &minus;22% MRR</td></tr>
+<tr><td><code>rho_0</code></td><td>(121,)</td><td class="n">&mdash;</td><td>size law</td><td><span class="chip ok">WORKS</span> must stay convex</td></tr>
+</tbody></table></div>
+<div class="note"><strong>Recency is switched off.</strong> Its cold-start indicator falls
+74.7% &rarr; 51.5% from the first training weeks to test, and <code>log1p(since)/log(100)</code>
+leaves the training support entirely (max 1.000 &rarr; 1.399). It accounted for
+<strong>104%</strong> of the held-out shift in <code>b</code>, which Proposition&nbsp;1 turns
+into roughly 22 extra items. Recoverable by per-week standardisation; not yet done.</div>
+
+<h2 id="norm">3 &middot; The normaliser</h2>
+<p><code>Z</code> sums <code>exp(E(S))</code> over all 2<sup>5455</sup> subsets. It is made
+computable by a Gaussian identity (Hubbard&ndash;Stratonovich):</p>
+<pre class="eq">exp( ||v||^2 / 2 ) = E_{z ~ N(0, I_Kz)}[ exp(v'z) ],    v = sum_{j in S} phi_j
+
+=>  Z = E_z[ f(z) ],   f(z) = sum_n exp(-rho_0(n)) A_n(w(z))
+    w_j(z) = exp( b_j - ||phi_j||^2 / 2 + phi_j' z )</pre>
+<p>Given <code>z</code> the items are <em>independent</em>, so the sum over subsets
+factorises and <code>f(z)</code> is computed exactly by an elementary-symmetric-polynomial
+recursion. <strong>The only approximation in the entire model is the outer expectation over
+a 4-dimensional Gaussian.</strong></p>
+
+<h3>Why importance sampling fails, and what <code>c</code> is</h3>
+<p>As <code>||z||</code> grows along a direction <code>u</code>, the dominant basket collects
+every product whose embedding points that way, so <code>log f(z) ~ c ||z||</code> with</p>
+<pre class="eq">c = max over unit u of  sum_j max(phi_j' u, 0)</pre>
+<p>The integrand therefore behaves like <code>exp(c||z|| - ||z||^2/2)</code> and keeps its
+mass in a <em>shell at radius c</em>. A proposal centred at the mode with standard deviation
+capped at 4.47 never visits that shell when <code>c</code> is large. At the original
+<code>Kz = 32</code>, <code>c = 74</code>: the sampler drew at radius ~5 while the mass sat
+beyond 100.</p>
+<div class="note"><strong>c is a computational quantity, not a modelling one.</strong>
+<code>z</code> is an integration variable introduced by a Gaussian identity, not a latent
+with meaning. A large <code>c</code> means the integral is hard, and says nothing about
+whether the model is sensible.</div>
+
+<h3>Deterministic quadrature</h3>
+<p>A Smolyak sparse grid computes the expectation deterministically &mdash; no proposal, no
+importance weights, no effective sample size, no convergence guard:</p>
+<pre class="eq">A(q,d) = sum_{q-d+1 &lt;= |i| &lt;= q} (-1)^{q-|i|} C(d-1, q-|i|) (U^{i_1} x ... x U^{i_d})</pre>
+<p>with <code>U^i</code> the probabilists' Gauss&ndash;Hermite rule at level <code>i</code>.
+Weights are signed, so the sum is formed in linear space after factoring out the row maximum.
+Verified against exact enumeration &mdash; the <code>z</code>-integral closes in form, so
+ground truth needs no sampling at all:</p>
+<pre class="eq">Z = sum_S exp( -rho_0(|S|) + sum_S b_j + sum_{j&lt;k in S} phi_j' phi_k )</pre>
+<div class="scroll"><table>
+<thead><tr><th>Method</th><th class="n">Points</th><th class="n">Error vs exact</th></tr></thead>
+<tbody>
+<tr><td>Monte Carlo</td><td class="n">4,096</td><td class="n">8 &ndash; 36 nats</td></tr>
+<tr><td>Smolyak <code>Kz=4, q=7</code></td><td class="n">201</td><td class="n">0.015</td></tr>
+<tr><td>Smolyak <code>Kz=4, q=8</code> <span class="small">(in use)</span></td><td class="n">681</td><td class="n">0.002</td></tr>
+</tbody></table></div>
+<p>The grid has a hard radius &mdash; 3.75 at <code>q=7</code>, 4.51 at <code>q=8</code>.
+The error transitions <em>exactly</em> where <code>c</code> crosses it: at
+<code>c = 3.27</code> the error is 0.012 nats; at <code>c = 6.29</code> it is 0.914. So
+<code>c</code> is projected below the radius after every step.</p>
+
+<h3>Exploiting sparsity</h3>
+<p>Only products carrying <code>phi</code> depend on <code>z</code>. With a 20-product mask
+that is 99.6% of the work repeated needlessly at every node, so the elementary-symmetric
+polynomial over the remainder and the convolution over untouched categories are lifted out
+of the node loop:</p>
+<pre class="eq">E_c(z) = E_c^{no-phi}  *  E_c^{phi}(z)          per category
+A(z)   = A_const       *  A_active(z)           across categories</pre>
+<p><strong>83.7&times; faster</strong> at a 20-product mask, bit-equal to the dense path
+(max relative difference 2.3e-16) and gradient-equal on masked-in <code>phi</code> (6.9e-14).
+681 nodes now cost less per iteration than 16 sampled draws did.</p>
+
+<h2 id="train">4 &middot; Training</h2>
+<p>Maximise held-out set log-likelihood by Adam with a cosine schedule. Because
+<code>log Z</code> is now exact, the objective is the actual likelihood rather than a
+biased surrogate.</p>
+<h4>Penalties</h4>
+<div class="kv">
+<dt>--size-kl</dt><dd>cross-entropy of the model size law to the empirical one</dd>
+<dt>--rkl-w</dt><dd>reverse KL on the size law; the forward CE is blind to a heavy tail</dd>
+<dt>--elast-w</dt><dd>pins the aggregate price elasticity to the measured &minus;0.121</dd>
+<dt>--pool-prod</dt><dd>ridge on the bilinear <em>product</em>, not on its factors</dd>
+</div>
+<h4>Projections applied after every step</h4>
+<div class="kv">
+<dt>--c-max</dt><dd>scales <code>phi</code> so <code>c</code> stays inside the grid radius</dd>
+<dt>--lam-centre</dt><dd>centres <code>lam</code>, transferring the level to <code>rho_0</code></dd>
+<dt>--lam-sd-max</dt><dd>caps the spread of <code>lam</code></dd>
+<dt>centring</dt><dd><code>delta</code>, <code>xi</code>, <code>theta</code> centred in <code>b_at</code>, structurally</dd>
+</div>
+<div class="note"><strong>Why penalties act on products, not factors.</strong> A squared
+penalty on each factor of a bilinear term becomes a <em>nuclear-norm</em> penalty on their
+product &mdash; degree 1 &mdash; while <code>lam</code> pays a ridge, degree 2. Verified
+numerically: bilinear cost per unit is flat at 2.204e-4 across <code>||v||</code> from 50 to
+400, ridge cost per unit-squared flat at 5e-6. Below the crossover the bilinear route is
+always cheaper, so the intercept migrates into it. This is why raising <code>--pool-ctx</code>
+never worked: it changes the coefficient, not the exponent.</div>
+<h4>Gauge fixing</h4>
+<p><code>lam_j + mu_j' delta_w</code> has an exact flat direction: <code>lam_j &rarr; lam_j +
+mu_j' a</code> with <code>delta_w &rarr; delta_w - a</code> leaves every <code>b</code>
+unchanged. The likelihood cannot choose where the intercept lives; only the penalties can,
+and they choose badly. Centring <code>delta</code>, <code>xi</code> <em>and</em>
+<code>theta</code> removes the freedom. All three are needed &mdash; centring only the
+contextual terms lets the intercept migrate into household taste instead.</p>
+
+<h2 id="eval">5 &middot; Evaluation</h2>
+<p>Trips are stored in <strong>time order</strong>, so any prefix is a single week. Every
+evaluation samples uniformly across a split with a fixed seed. Both validation and test are
+always reported.</p>
+<div class="note"><strong>The slice that flattered everything.</strong> The training loop
+scored <code>va[:128]</code> &mdash; week 83 alone. Its worst trip had model
+<code>E[n] = 16.5</code>; a random sample reaches 117. Measured on the prefix, likelihood
+read &minus;45.6 where a random sample gives &minus;52.1, and the empirical target itself was
+wrong (7.2 items and variance 67, against a true 8.6 and 89). Fixed by permuting the
+validation array once with a fixed seed.</div>
+<p>Reported at every checkpoint: held-out set log-likelihood; <code>E[n]</code> as
+<em>both</em> mean and median, because the failure is concentrated in a tail; population
+<code>Var(n) = E[Var(n|trip)] + Var[E(n|trip)]</code>; aggregate price elasticity;
+complete-the-basket MRR. Best-likelihood and best-MRR checkpoints are saved separately.</p>
+
+<h2 id="exp">6 &middot; Experiments</h2>
+
+<h3>6.1 &nbsp; Defects found and fixed</h3>
+<p>Each was verified by direct test, not inferred from the loss curve. Several had been
+silently corrupting results for dozens of runs.</p>
+<div class="scroll"><table>
+<thead><tr><th>Defect</th><th>Evidence</th><th>Consequence</th></tr></thead>
+<tbody>
+<tr><td>ESS gate rebuilt <code>loss</code>, discarding every penalty</td><td><code>mu.grad</code> was <code>None</code> at any coefficient</td><td><code>--pool-ctx</code>, <code>--pool-beta</code>, <code>--elast-w</code> never affected training in any run</td></tr>
+<tr><td><code>pi_exact</code> shadowed the <code>lam</code> Parameter in <code>__dict__</code></td><td>bit-identical <code>lam</code> across from-scratch runs; <code>|lam| &lt;= lr</code> exactly</td><td>the product intercept was frozen after one Adam step, runs 29&ndash;84</td></tr>
+<tr><td><code>log_Z</code> overwrote <code>log_q</code> after the proposal branches</td><td><code>mix_scales</code> returned 853.6 against a true 10.9</td><td>draws scored under a density they did not come from</td></tr>
+<tr><td>gauge freedom <code>lam</code> &harr; <code>mu'delta_bar</code></td><td>likelihood exactly flat along 8 directions</td><td>intercept migrated out of <code>lam</code> into the seasonal term</td></tr>
+<tr><td>penalty degree mismatch</td><td>degree 1 vs degree 2, verified numerically</td><td>bilinear terms always won the intercept</td></tr>
+<tr><td>recency non-stationary on a temporal split</td><td>104% of the held-out shift in <code>b</code></td><td>+22 items of held-out <code>E[n]</code> via Proposition 1</td></tr>
+<tr><td>validation was a one-week prefix</td><td>worst trip <code>E[n]</code> 16.5 vs 117 in a random sample</td><td>likelihood overstated by ~6.5 nats; variance target wrong</td></tr>
+</tbody></table></div>
+
+<h3>6.2 &nbsp; Held-out likelihood against baselines</h3>
+<p>This model is scored on the <strong>complete</strong> validation and test sets &mdash; all
+16,948 and 24,278 in-support trips, no sampling. The baselines are on evalall's seeded
+3,000-trip sample, so their margins are indicative rather than exact.</p>
+<div class="scroll"><table>
+<thead><tr><th>Model</th><th class="n">valid</th><th class="n">test</th><th class="n">valid/line</th><th class="n">test/line</th></tr></thead>
+<tbody>
+<tr><td><strong>this model</strong> (run97, 5.3 epochs) <span class="small">full sets</span></td><td class="n">&minus;39.912</td><td class="n">&minus;42.085</td><td class="n">&minus;5.122</td><td class="n">&minus;5.432</td></tr>
+<tr><td>shopper</td><td class="n">&minus;45.531</td><td class="n">&minus;47.228</td><td class="n">&minus;5.789</td><td class="n">&minus;5.872</td></tr>
+<tr><td>multinomial</td><td class="n">&minus;46.872</td><td class="n">&minus;48.753</td><td class="n">&minus;5.959</td><td class="n">&minus;6.062</td></tr>
+<tr><td>ndpp <span class="chip op">UNVERIFIED</span></td><td class="n">&minus;67.786</td><td class="n">&minus;69.037</td><td class="n">&minus;8.618</td><td class="n">&minus;8.584</td></tr>
+</tbody></table></div>
+<p>Ahead of shopper by 5.6 / 5.1 nats and multinomial by 7.0 / 6.7. The complete-set figures
+are slightly BETTER than the 3,000-trip sample (&minus;40.424 / &minus;42.140), so the sample
+was mildly pessimistic rather than flattering.</p>
+<div class="note"><strong>Re-scoring on identical trips changed the conclusion.</strong> The
+baselines had sampled their own held-out sets, so the earlier comparison was never on the
+same data. Shopper read &minus;48.310&thinsp;/&thinsp;&minus;45.757 on its own draw against
+&minus;45.531&thinsp;/&thinsp;&minus;47.228 here &mdash; a swing of +2.8 and &minus;1.5. That
+retires an earlier claim that shopper edged this model on test; it did not.
+<code>ndpp</code> is marked unverified because its constructor arguments had to be inferred
+to load the checkpoint, so the scored model may not be the one that was trained.</div>
+<p>Training to convergence was worth <strong>2.9 nats</strong>: run89 stopped at 0.61 epochs
+(&minus;44.348&thinsp;/&thinsp;&minus;45.874), run90 converged at ~2.0 epochs. The likelihood
+then oscillated in a 0.11-nat band for 1,000 iterations with no trend.</p>
+
+<h3>6.3 &nbsp; Price counterfactual</h3>
+<pre>VALIDATION                              TEST
+  baseline    E[n]  8.475               baseline    E[n] 10.738
+  10% CUT     E[n]  8.561   -0.097      10% CUT     E[n] 10.850   -0.099
+  10% RISE    E[n]  8.398   -0.096      10% RISE    E[n] 10.638   -0.098
+                    data:   -0.121</pre>
+<p>Symmetric on both splits and near-identical across them &mdash; the cleanest transfer of any
+metric here.</p>
+<p class="small">Any script that perturbs prices must shift <code>dlp_bar</code> as well as
+<code>dlp</code>: <code>b_at</code> splits price into a common level and an idiosyncratic
+deviation, and leaving <code>dlp_bar</code> fixed presents a uniform change as pure
+deviation, multiplying it by <code>price_kappa</code> (16.15 here) and reading &minus;1.4
+instead of &minus;0.10.</p>
+<p>Within 3&ndash;6% and <strong>symmetric in both directions</strong> &mdash; the model
+responds correctly to a price rise it was never trained toward. Multinomial's aggregate
+elasticity is exactly 0 (its size law is a frozen buffer); ndpp's is &minus;0.0038.
+<span class="chip ok">STRONGEST RESULT</span></p>
+
+<h3>6.4 &nbsp; Generation</h3>
+<pre>                  VALIDATION            TEST
+   n         model  observed     model  observed
+ 21-40      0.0776    0.0417    0.1019    0.0800
+ 41-120     0.0271    0.0125    0.0463    0.0150     3.1x too heavy on test</pre>
+<p>This is the one metric that DEGRADES from validation to test: the large-basket tail is
+2.2&times; too heavy on validation and <strong>3.1&times; on test</strong>. Moderating those trips
+is what <code>--en-w</code> achieved; eliminating them is open, and the fact that the miss
+concentrates in the later weeks points at temporal drift rather than a fitting failure.</p>
+
+<h3>6.5 &nbsp; Customer affinity</h3>
+<p>Given a household and a shopping occasion, score its real basket against 47 other
+households' baskets <em>of identical size</em>, all under the same prices, week and store.
+Equal size makes <code>rho_0</code> cancel, so the comparison is purely about which products.</p>
+<div class="scroll"><table>
+<thead><tr><th>Variant</th><th class="n">top-1</th><th class="n">top-5</th><th class="n">MRR</th></tr></thead>
+<tbody>
+<tr><td>full model <span class="small">test, n=766</span></td><td class="n">23.1%</td><td class="n">52.3%</td><td class="n">0.3715</td></tr>
+<tr><td>taste ablated (<code>theta = 0</code>)</td><td class="n">3.5%</td><td class="n">17.2%</td><td class="n">0.1293</td></tr>
+<tr><td><code>phi</code> ablated</td><td class="n">21.5%</td><td class="n">53.3%</td><td class="n">0.3640</td></tr>
+<tr><td><em>chance</em></td><td class="n">2.0%</td><td class="n">9.8%</td><td class="n">&mdash;</td></tr>
+</tbody></table></div>
+<p><strong>11.6&times; chance on test</strong> (17.3% and 8.7&times; on a 185-case validation
+sample), and zeroing <code>theta</code> collapses it to near chance &mdash; household taste is
+the entire signal. <span class="chip ok">WORKS</span></p>
+<div class="note"><strong>The <code>phi</code> ablation here is NOISE, not a finding.</strong>
+On a 185-case validation sample, ablating <code>phi</code> appeared to raise top-1 from 17.3%
+to 20.0% &mdash; 5 cases, paired <code>p = 0.36</code>, 0.8 standard errors. On the 766-case
+TEST sample the sign REVERSES: ablation lowers top-1 from 23.1% to 21.5%. An earlier draft
+reported the validation gap as evidence that <code>phi</code> hurts and compared it against
+the previous checkpoint's equally insignificant gap. Both are withdrawn; the sign flip
+across samples is what noise looks like.
+<br><br>The test that answers the question is the ablation on the PRIMARY objective, and it
+points the other way: held-out set likelihood is <code>&minus;40.3810</code> with
+<code>phi</code> against <code>&minus;40.3972</code> without on validation, and
+<code>&minus;39.9070</code> against <code>&minus;39.9176</code> on test. <strong><code>phi</code>
+is worth +0.016 and +0.011 nats</strong> &mdash; real, consistent, and very small against a
+5.1-nat lead over shopper. It reaches 20 products and 4.5% of held-out items; it is a minor
+positive contributor, not a liability.</div>
+
+<h3>6.6 &nbsp; Recommendation and bundles &mdash; rank on <code>pi</code>, not <code>b</code></h3>
+<div class="note"><strong>The scoring function was wrong, and it inverted the conclusion.</strong>
+<code>b_j</code> is the product's standalone item value, an <em>input</em>. Measured on the
+reference checkpoint, <code>corr(mean b_j, log purchases) = &minus;0.052</code> &mdash;
+<code>b</code> is uncorrelated with how often a product is actually bought, and the five
+products with the highest mean <code>b</code> were bought 51&ndash;207 times against a top
+seller's ~22,000. The marginal <code>pi_j = d log(Z-1)/d b_j</code> is what happens once
+5,455 products compete for ~8 slots under the size law and the category term, and it
+correlates <code>+0.173</code>.</div>
+<p>Complete-the-basket, all methods on identical trips with identical held-out items:</p>
+<div class="scroll"><table>
+<thead><tr><th>Method</th><th class="n">MRR valid</th><th class="n">MRR test</th><th class="n">R@10 valid</th></tr></thead>
+<tbody>
+<tr><td><strong>ours: pi | rest of basket</strong></td><td class="n">0.0823</td><td class="n">0.0739</td><td class="n">15.0%</td></tr>
+<tr><td>ours: pi, unconditioned</td><td class="n">0.0824</td><td class="n">0.0727</td><td class="n">14.7%</td></tr>
+<tr><td>co-purchase counts</td><td class="n">0.0404</td><td class="n">0.0383</td><td class="n">8.4%</td></tr>
+<tr><td>ours: b only</td><td class="n">0.0137</td><td class="n">0.0090</td><td class="n">1.9%</td></tr>
+<tr><td>popularity</td><td class="n">0.0368</td><td class="n">0.0381</td><td class="n">6.8%</td></tr>
+<tr><td>ours: b + phi + rho_c</td><td class="n">0.0230</td><td class="n">0.0193</td><td class="n">2.8%</td></tr>
+<tr><td>random</td><td class="n">0.0015</td><td class="n">0.0011</td><td class="n">0.3%</td></tr>
+</tbody></table></div>
+<p>On <strong>1,651 validation and 1,630 test cases</strong>: <strong>2.2&times; popularity and
+2.0&times; co-purchase on validation; 1.9&times; and 1.9&times; on test.</strong> An earlier
+draft reported 3.0&times; from 316 cases &mdash; the baselines themselves moved with the
+larger sample (popularity 0.0265 &rarr; 0.0368), so that multiple was small-sample inflation. Note that <code>b + phi + rho_c</code> scores <em>below</em>
+<code>b</code> alone: adding the interaction terms by hand double-counts what
+<code>pi</code> already reconciles with the normaliser. That artefact produced the earlier
+claim that <code>rho_c</code> costs 22&ndash;35% of ranking, which is withdrawn.</p>
+<p><strong>Conditioning on the cart adds nothing</strong> &mdash; 0.0823 against 0.0824
+unconditioned on validation, 0.0739 against 0.0727 on test. At 316 cases it looked like 7%;
+at five times the sample it is zero. Essentially the whole win is using <code>pi</code> at all. So what the model
+supplies is personalised <em>propensity</em>, not basket completion, which is consistent
+with <code>phi</code> reaching 4.5% of held-out items and <code>rho_c</code> saying "more
+from this category" rather than naming a partner.</p>
+<h4>Bundles</h4>
+<p>A bundle is a set, and sets are what this model scores natively. Built greedily, pinning
+each chosen item in by raising its <code>b</code> so the model re-solves for the rest:</p>
+<div class="scroll"><table>
+<thead><tr><th>Method</th><th class="n">hit rate</th><th class="n">distinct categories</th></tr></thead>
+<tbody>
+<tr><td><strong>greedy on pi</strong> <span class="small">test, 1,200 trips</span></td><td class="n">0.197</td><td class="n">1.68 of 5</td></tr>
+<tr><td>popularity top-5</td><td class="n">0.117</td><td class="n">1.00 of 5</td></tr>
+<tr><td>taste (theta.alpha) top-5</td><td class="n">0.048</td><td class="n">1.55 of 5</td></tr>
+<tr><td>greedy on b</td><td class="n">0.033</td><td class="n">1.05 of 5</td></tr>
+</tbody></table></div>
+<p>6.4&times; from changing the objective and 1.9&times; over popularity. On <code>b</code>
+the bundles collapsed into a single category, because <code>rho_c</code> is fitted negative
+so <code>-rho_c * n_c</code> <em>grows</em> with each item already taken from that category
+&mdash; a positive feedback loop. On <code>pi</code> the same terms are reconciled by the
+normaliser and the bundles read as real baskets:</p>
+<pre>household  25:  WHITE BREAD / FLUID MILK / FRUIT DRINKS / SINGLE CHEESE / SHREDDED CHEESE
+household 471:  DAIRY TEA / PREP SIDE DISHES / WHITE BREAD / SALAD BAR FRUIT / FLUID MILK
+household 1078: SOFT DRINKS / SOFT DRINKS / FRUIT DRINKS / DRY MEAT / CANDY BAGS</pre>
+
+<h3>6.7 &nbsp; Resuming a converged model needs a gentle learning rate</h3>
+<p>The per-trip size penalty <code>--en-w</code> was tried twice on the same checkpoint with
+the same weight. The only difference was the rate:</p>
+<pre>  lr 0.005   it 32000  var  92/89      it 32200  var 284/89   ll -44.941
+  lr 0.0005  it 32000  var  91/89      it 32200  var  98/89   ll -43.014
+             ... and 13 further evals holding var 91-105, ll improving to -42.647</pre>
+<p>At the higher rate the same objective looked like it was failing. It was not: the model
+was being thrown between states three-fold apart in variance within 200 iterations.</p>
+<div class="note"><strong>Those swings are the MODEL, not the estimator, and that is
+provable rather than inferred.</strong> The eval computes its size moments on
+<code>va[:128]</code> &mdash; a fixed slice &mdash; with
+<code>torch.Generator().manual_seed(0)</code> created fresh each time. Same trips, same
+seed, same draws, so the reported <code>Var(n)</code> is a deterministic function of the
+parameters. No randomness varies between evals, so nothing but the model can move it.
+<br><br>An earlier draft argued this from the quadrature agreeing with the sampler to three
+decimals. That argument has a hole: the agreement was measured where
+<code>Var(n|trip)</code> is 56 and well behaved, while the swings happened at 284, where
+importance sampling is at its worst. The determinism argument needs no such transfer.</div>
+<p>The practical rule: a run resumed from a converged checkpoint should use roughly a tenth
+of the original rate. <code>--fresh-sched</code> resets to <code>--lr</code>, so passing it
+without lowering <code>--lr</code> restarts a converged model at full rate.</p>
+
+<h3>6.8 &nbsp; What the embeddings learned</h3>
+<p><strong>Households (<code>theta</code>).</strong> Five k-means segments, profiled against
+behaviour the model never sees:</p>
+<div class="scroll"><table>
+<thead><tr><th>Segment</th><th class="n">n</th><th class="n">basket</th><th class="n">trips</th><th class="n">price sens.</th><th>character</th></tr></thead>
+<tbody>
+<tr><td>2</td><td class="n">464</td><td class="n">9.03</td><td class="n">88.0</td><td class="n">0.184</td><td>fresh-food (PRODUCE 1.57&times;)</td></tr>
+<tr><td>1</td><td class="n">364</td><td class="n">8.10</td><td class="n">134.1</td><td class="n">0.155</td><td>heavy loyalist, least price-driven</td></tr>
+<tr><td>4</td><td class="n">315</td><td class="n">9.38</td><td class="n">99.7</td><td class="n">0.169</td><td>large baskets</td></tr>
+<tr><td>0</td><td class="n">357</td><td class="n">7.94</td><td class="n">53.2</td><td class="n">0.222</td><td>packaged meat</td></tr>
+<tr><td>3</td><td class="n">566</td><td class="n">6.91</td><td class="n">30.7</td><td class="n">0.274</td><td>light, most price-driven</td></tr>
+</tbody></table></div>
+<p>Trip frequency and price sensitivity run inversely, which nobody put in. And
+<code>theta</code> alone explains <strong>R&sup2; = 0.605</strong> of the variance in
+<code>gamma</code> &mdash; a separate parameter block it is never tied to.</p>
+<p><strong>Products (<code>alpha</code>).</strong> Nearest neighbours share sub-commodity at
+7.2&times; chance but department at only 1.1&times;. The neighbourhoods
+(SWEETENERS &rarr; LETTUCE, APPLES, MUSHROOMS) show what it really encodes: <em>bought by the
+same households</em>, not <em>similar product</em>. That is exactly its role, since it only
+ever appears as <code>theta_h' alpha_j</code>.</p>
+<p><strong>Complementarity (<code>phi</code>).</strong> On the 20 products that carry it,
+correlation with empirical log-lift is <strong>+0.486</strong>, and its strongest learned pair
+is the strongest real pair in the data:</p>
+<pre>  phi.phi  emp lift   pair
+    0.517      9.65   HAMBURGER BUNS         + HOT DOG BUNS
+    0.298      4.49   CHOCOLATE MILK         + FLUID MILK WHITE ONLY
+    0.270      6.25   CUCUMBERS              + PEPPERS GREEN BELL</pre>
+<p>The mechanism works. It is confined to 0.4% of the catalogue by the <code>c</code> budget,
+and capped at roughly a third of the true strength.</p>
+
+<h3>6.9 &nbsp; Choosing <code>Kz</code></h3>
+<p>Two independent lines agree. On the s25 mission-mixture truth &mdash; outside every
+entrant's family &mdash; <code>Kz=4</code> recovers 97.9% of the achievable ceiling against
+91.9% at <code>Kz=2</code>. And the real co-purchase log-lift spectrum, tested against a
+matched independence null, has 4&ndash;5 strongly separated modes above the noise floor
+(eigenvalues 100.0, 40.5, 29.5, 28.0, then a plateau at 17&ndash;25 against a floor of 13).</p>
+
+<h3>6.10 &nbsp; Claims that did not survive</h3>
+<p>Recorded because each was stated with confidence and then refuted by measurement.</p>
+<div class="scroll"><table>
+<thead><tr><th>Claim</th><th>What actually happened</th></tr></thead>
+<tbody>
+<tr><td>The frozen <code>lam</code> caused the ranking collapse</td><td>a run with <code>lam</code> alive collapsed identically</td></tr>
+<tr><td><code>lam</code> saturates at sd 0.298, "confirmed within 4%"</td><td>a transient read as convergence; it kept rising</td></tr>
+<tr><td><code>log Z</code> is wrong by thousands of nats</td><td>built on <code>c&sup2;/2</code>, which overstates by ~2&times;; ESS was 1/1024 so the reading was a single draw</td></tr>
+<tr><td>Large <code>c</code> means a badly specified model</td><td><code>z</code> is an integration variable; large <code>c</code> only means a hard integral</td></tr>
+<tr><td>MRR and likelihood are systematically opposed</td><td>held over 3,800 iterations they rise together</td></tr>
+<tr><td><code>rho_c</code> is a substitution penalty</td><td>fitted negative in 94.6% of categories &mdash; it rewards</td></tr>
+<tr><td>The model ranks below popularity</td><td>wrong twice: different trip sets, then the wrong scoring function; on pi it wins 2.8&ndash;3.3x</td></tr>
+<tr><td><code>phi</code> hurts customer affinity</td><td>5 cases in 185, paired p = 0.36; the likelihood ablation says phi is worth +0.016 nats</td></tr>
+<tr><td><code>rho_c</code> costs 22&ndash;35% of ranking MRR</td><td>an artefact of adding phi and rho_c to b by hand, which double-counts what pi reconciles</td></tr>
+</tbody></table></div>
+
+<h2 id="limits">7 &middot; Limitations</h2>
+<p><strong>Complementarity is budget-limited.</strong> <code>c</code> must fit inside the
+quadrature radius, and every product carrying <code>phi</code> spends from the same pot.
+Twenty products at <code>phi'phi = 0.35</code>, or all 5,455 at 0.0009. Reaching grocery
+strength (0.92) on 20 products needs ~30,000 nodes at <code>Kz=6</code>. The class expresses
+complementarity that is <em>strong and narrow</em> or <em>broad and negligible</em>.</p>
+<p><strong>Per-product price sensitivity is arbitrary.</strong> The aggregate elasticity is
+pinned and correct; nothing constrains its allocation across products, and
+<code>beta</code> correlates +0.016 with the empirical per-product response. Trust "a 10% cut
+grows baskets 1.2%"; do not trust "discount X rather than Y".</p>
+<p><strong>Substitution has one scalar per category.</strong> <code>phi phi'</code> is PSD,
+so the negative eigenvalues of the empirical log-lift spectrum (down to &minus;57) must live
+in <code>rho_c</code> or nowhere.</p>
+<p><strong>Test degrades relative to validation.</strong> <code>E[n]</code> 9.95 against 8.11
+observed on test, versus 8.72 against 7.82 on validation, measured on the COMPLETE sets &mdash; temporal drift over
+weeks 91&ndash;102.</p>
+
+<h2 id="repro">8 &middot; Reproducing</h2>
+<pre>cd scripts/v3
+
+# preprocessing: the phi mask
+python3 pairmask.py --k 20
+
+# training
+V3_AFFINITY=1 python3 fit.py --label run89 --Kz 4 --quad-q 8 \
+  --phi-mask ../../basket_input/v3_phimask_k20.npy --c-max 4.3 \
+  --lam-centre 1 --no-rec 1 --pool-prod 1.45 --rkl-w 10.0 --elast-w 20.0 \
+  --gap-project 0 --rho0-curv 0 --lam-sd-max 0.45 --iters 4000
+
+# evaluation, both splits, sampled across all weeks
+V3_AFFINITY=1 python3 evalall.py --ckpts v3_run89_best.pt \
+  --Kz 4 --quad-q 8 --n-trips 3000 --splits valid,test</pre>
+<p class="small">Files: <code>ragged.py</code> model &middot; <code>fit.py</code> training
+&middot; <code>data.py</code>, <code>features.py</code>, <code>pairmask.py</code>
+preprocessing &middot; <code>evalall.py</code>, <code>distcheck.py</code>,
+<code>recommend.py</code> evaluation &middot; <code>env.py</code> MDP environment &middot;
+<code>baselines.py</code>, <code>baselines2.py</code>, <code>shopper_ladder.py</code>
+comparisons. Superseded probes are in <code>archive/v3_probes/</code>.</p>
+
+</div>

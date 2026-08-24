@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.so
+*.o
+*.egg-info/
+.DS_Store
+.venv/
+
+# Derived/private Dunnhumby inputs and all runtime artefacts.
+basket_input/
+out/
+
